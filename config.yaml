@@ -1,7 +1,7 @@
 morning_train:
   from: "WIN"          # Winchester
   to: "WAT"            # Waterloo
-  departure: "0948"
+  departure: "0725"
   days:                # Days to monitor (omit for every day)
     - wednesday
 

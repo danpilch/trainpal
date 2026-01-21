@@ -52,7 +52,7 @@ func (n *Notifier) SendTrainDelay(trainID, from, to string, delayMinutes int, ex
 	title := "Train Delay Alert"
 	body := fmt.Sprintf("Train %s from %s to %s is delayed by %d minutes.\nExpected: %s, Platform: %s",
 		trainID, from, to, delayMinutes, expectedTime, platform)
-	return n.Send(title, body)
+	return n.SendWithPriority(title, body, PriorityHigh)
 }
 
 func (n *Notifier) SendTrainOnTime(trainID, from, to, departureTime, platform string) error {
@@ -68,6 +68,13 @@ func (n *Notifier) SendTrainArrival(trainID, station, arrivalTime string) error 
 	return n.Send(title, body)
 }
 
+func (n *Notifier) SendTrainDeparture(trainID, from, to, departureTime, platform string) error {
+	title := "Train Departed"
+	body := fmt.Sprintf("Train %s from %s to %s has departed at %s from Platform %s",
+		trainID, from, to, departureTime, platform)
+	return n.Send(title, body)
+}
+
 func (n *Notifier) SendTrainCancellation(trainID, from, to, reason string) error {
 	title := "Train Cancellation Alert"
 	body := fmt.Sprintf("Train %s from %s to %s has been CANCELLED.\nReason: %s",
@@ -78,7 +85,7 @@ func (n *Notifier) SendTrainCancellation(trainID, from, to, reason string) error
 func (n *Notifier) SendTubeDisruption(status, reason string) error {
 	title := "Tube Disruption Alert"
 	body := fmt.Sprintf("Northern Line: %s\n%s", status, reason)
-	return n.Send(title, body)
+	return n.SendWithPriority(title, body, PriorityHigh)
 }
 
 func (n *Notifier) SendTubeStatus(status, reason string) error {

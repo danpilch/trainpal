@@ -22,6 +22,8 @@ const (
 	TaskNorthernLineSummary
 	TaskMorningStatusUpdate
 	TaskEveningStatusUpdate
+	TaskMorningDepartureCheck
+	TaskEveningDepartureCheck
 )
 
 type Task struct {
@@ -174,6 +176,11 @@ func (s *Scheduler) setupDailyTasks() {
 			Task{Type: TaskMorningStatusUpdate, Time: morningDep.Add(-30 * time.Minute)},
 		)
 
+		// Departure check (starts at departure time, polls until departed)
+		s.tasks = append(s.tasks,
+			Task{Type: TaskMorningDepartureCheck, Time: morningDep, Repeating: true},
+		)
+
 		s.tasks = append(s.tasks,
 			Task{Type: TaskMorningArrivalCheck, Time: morningDep.Add(70 * time.Minute), Repeating: true},
 		)
@@ -215,6 +222,17 @@ func (s *Scheduler) setupDailyTasks() {
 		s.tasks = append(s.tasks,
 			Task{Type: TaskEveningStatusUpdate, Time: eveningDep.Add(-60 * time.Minute)},
 			Task{Type: TaskEveningStatusUpdate, Time: eveningDep.Add(-30 * time.Minute)},
+		)
+
+		// Northern Line checks at 60m and 30m before evening departure
+		s.tasks = append(s.tasks,
+			Task{Type: TaskNorthernLineCheck, Time: eveningDep.Add(-60 * time.Minute)},
+			Task{Type: TaskNorthernLineCheck, Time: eveningDep.Add(-30 * time.Minute)},
+		)
+
+		// Departure check (starts at departure time, polls until departed)
+		s.tasks = append(s.tasks,
+			Task{Type: TaskEveningDepartureCheck, Time: eveningDep, Repeating: true},
 		)
 
 		s.tasks = append(s.tasks,
@@ -292,6 +310,30 @@ func (s *Scheduler) executeTask(ctx context.Context, task *Task) {
 			s.cfg.EveningTrain.From,
 			s.cfg.EveningTrain.To,
 			s.cfg.EveningTrain.Departure)
+
+	case TaskMorningDepartureCheck:
+		departed, checkErr := s.trainMonitor.CheckDeparture(ctx,
+			s.cfg.MorningTrain.From,
+			s.cfg.MorningTrain.To,
+			s.cfg.MorningTrain.Departure)
+		err = checkErr
+		if departed {
+			task.Repeating = false
+		} else {
+			task.Time = task.Time.Add(2 * time.Minute)
+		}
+
+	case TaskEveningDepartureCheck:
+		departed, checkErr := s.trainMonitor.CheckDeparture(ctx,
+			s.cfg.EveningTrain.From,
+			s.cfg.EveningTrain.To,
+			s.cfg.EveningTrain.Departure)
+		err = checkErr
+		if departed {
+			task.Repeating = false
+		} else {
+			task.Time = task.Time.Add(2 * time.Minute)
+		}
 	}
 
 	if err != nil {

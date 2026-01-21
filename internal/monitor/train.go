@@ -19,18 +19,20 @@ type TrainMonitor struct {
 	notifier  *notify.Notifier
 	logger    *logrus.Logger
 
-	mu              sync.Mutex
-	notifiedDelays  map[string]int
-	notifiedCancels map[string]bool
+	mu                 sync.Mutex
+	notifiedDelays     map[string]int
+	notifiedCancels    map[string]bool
+	notifiedDepartures map[string]bool
 }
 
 func NewTrainMonitor(rttClient *rtt.Client, notifier *notify.Notifier, logger *logrus.Logger) *TrainMonitor {
 	return &TrainMonitor{
-		rttClient:       rttClient,
-		notifier:        notifier,
-		logger:          logger,
-		notifiedDelays:  make(map[string]int),
-		notifiedCancels: make(map[string]bool),
+		rttClient:          rttClient,
+		notifier:           notifier,
+		logger:             logger,
+		notifiedDelays:     make(map[string]int),
+		notifiedCancels:    make(map[string]bool),
+		notifiedDepartures: make(map[string]bool),
 	}
 }
 
@@ -39,6 +41,7 @@ func (m *TrainMonitor) ResetNotificationState() {
 	defer m.mu.Unlock()
 	m.notifiedDelays = make(map[string]int)
 	m.notifiedCancels = make(map[string]bool)
+	m.notifiedDepartures = make(map[string]bool)
 }
 
 // GetExpectedArrivalTime returns the expected arrival time at the destination for a given train.
@@ -308,6 +311,80 @@ func (m *TrainMonitor) calculateDelay(scheduled, actual string) int {
 		return 0
 	}
 	return int(diff.Minutes())
+}
+
+func (m *TrainMonitor) CheckDeparture(ctx context.Context, from, to, departureTime string) (departed bool, err error) {
+	depTime, err := parseTimeToday(departureTime)
+	if err != nil {
+		return false, fmt.Errorf("parsing departure time: %w", err)
+	}
+
+	m.logger.WithFields(logrus.Fields{
+		"from":      from,
+		"to":        to,
+		"departure": departureTime,
+	}).Info("checking train departure")
+
+	resp, err := m.rttClient.Search(ctx, from, to, depTime)
+	if err != nil {
+		return false, fmt.Errorf("searching for train: %w", err)
+	}
+
+	if resp == nil || len(resp.Services) == 0 {
+		return false, nil
+	}
+
+	service := m.findMatchingService(resp.Services, departureTime)
+	if service == nil {
+		return false, nil
+	}
+
+	details, err := m.rttClient.GetService(ctx, service.ServiceUid, depTime)
+	if err != nil {
+		return false, fmt.Errorf("getting service details: %w", err)
+	}
+
+	for _, loc := range details.Locations {
+		if loc.CRS == from {
+			if loc.RealtimeDepartureActual {
+				m.mu.Lock()
+				alreadyNotified := m.notifiedDepartures[service.ServiceUid]
+				if !alreadyNotified {
+					m.notifiedDepartures[service.ServiceUid] = true
+				}
+				m.mu.Unlock()
+
+				if alreadyNotified {
+					return true, nil
+				}
+
+				departureTimeStr := loc.RealtimeDeparture
+				if departureTimeStr == "" {
+					departureTimeStr = loc.GbttBookedDeparture
+				}
+
+				platform := loc.Platform
+				if platform == "" {
+					platform = "TBC"
+				}
+
+				m.logger.WithFields(logrus.Fields{
+					"service":        service.ServiceUid,
+					"station":        from,
+					"departure_time": departureTimeStr,
+					"platform":       platform,
+				}).Info("train departed")
+
+				if err := m.notifier.SendTrainDeparture(service.ServiceUid, from, to, departureTimeStr, platform); err != nil {
+					return true, fmt.Errorf("sending departure notification: %w", err)
+				}
+				return true, nil
+			}
+			break
+		}
+	}
+
+	return false, nil
 }
 
 func (m *TrainMonitor) CheckArrival(ctx context.Context, from, to, departureTime string) (arrived bool, err error) {
