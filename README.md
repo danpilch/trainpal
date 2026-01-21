@@ -40,7 +40,7 @@ evening_train:
 ## Usage
 
 ```bash
-go build ./cmd/trainpal
+go build
 ./trainpal --config config.yaml
 ```
 
